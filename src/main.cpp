@@ -1699,6 +1699,24 @@ void loop() {
     lastFrame = now;
     applyRotation();
     uiDrawScreen(currentScreen, mainMenuIndex, controlsIndex, settingsMenuIndex);
+    // Send 'S' over USB serial to get a screenshot - used for README GIFs.
+    // Reply: "SHOT w h bytes\n" + run-length data (count byte, 2 pixel bytes), mostly black so small.
+    while (Serial.available()) {
+      if (Serial.read() != 'S') continue;
+      const uint16_t* px = (const uint16_t*)fb.getBuffer();
+      int total = fb.width() * fb.height(), n = 0, i = 0;
+      static uint8_t* shot = (uint8_t*)ps_malloc(3 * SCR_W * SCR_H);   // worst case, every pixel different
+      if (!shot) continue;
+      while (i < total) {
+        uint16_t v = px[i]; int run = 1;
+        while (i + run < total && run < 255 && px[i + run] == v) run++;
+        shot[n++] = run; shot[n++] = v & 0xFF; shot[n++] = v >> 8;
+        i += run;
+      }
+      Serial.printf("SHOT %d %d %d\n", fb.width(), fb.height(), n);
+      Serial.write(shot, n);
+      Serial.println();
+    }
   } else {
     delay(2);
   }

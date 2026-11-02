@@ -4,6 +4,10 @@ Flash `Sila.bin` (from the Releases page) at address **0x0** with https://espres
 Since v3.3 your pet survives this: it keeps a backup outside the firmware area.
 (Don't tick "erase flash" - that would wipe the backup too.)
 
+## Unreleased
+- Send `S` over USB serial and Sila replies with its screen (run-length RGB565).
+  The README GIF was recorded this way, straight from the stick.
+
 ## v3.7 (2026-11-02) - more alive: calling, poking, falling, eating power, a game
 Tested with Mohanad on the real stick while logging it over USB.
 - Double clap = calling it: "you called?", it looks at you; wakes it up happily
