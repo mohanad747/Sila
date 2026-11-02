@@ -1,0 +1,4 @@
+.pio/
+.vscode/
+# firmware goes on the Releases page, not in the repo
+firmware/
