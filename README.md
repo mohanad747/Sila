@@ -1,5 +1,7 @@
 # Sila
 
+<p align="center"><img src="docs/sila.gif" width="480" alt="Sila's real screen: sniffing WiFi, answering a double clap, giggling at a poke, the menu, and the Catch game"></p>
+
 **Sila** (صلة) means *connection* or *bond*. It's a little companion for the
 M5StickS3 that lives on your keys, feeds on the WiFi connections around it,
 and has a face, moods, a life story and a personality.
