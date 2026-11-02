@@ -27,6 +27,11 @@ Easiest, no install needed:
 - Check the address box says **0x0** - the flasher defaults to 0x1000, which bricks the boot
   (black screen, USB keeps reconnecting). Re-flashing at 0x0 fixes it.
 
+Also on **M5Burner** (M5Stack's flashing app): search for Sila under Games. It's the easiest
+first install, but **M5Burner erases the whole flash when it burns, so an existing pet starts
+over as an egg** - the backup is wiped too. To update and keep your pet, use the web flasher
+steps above.
+
 Or build it yourself with PlatformIO in VS Code:
 
 1. Open this folder in VS Code (File > Open Folder). PlatformIO picks up `platformio.ini`
