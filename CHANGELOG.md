@@ -4,9 +4,35 @@ Flash `Sila.bin` (from the Releases page) at address **0x0** with https://espres
 Since v3.3 your pet survives this: it keeps a backup outside the firmware area.
 (Don't tick "erase flash" - that would wipe the backup too.)
 
-## Unreleased
-- Send `S` over USB serial and Sila replies with its screen (run-length RGB565).
-  The README GIF was recorded this way, straight from the stick.
+## v3.8 (2026-11-05) - desk life, and no more getting sick for no reason
+**Idle shows.** When it sits on your desk with nothing going on, every few minutes
+it performs something short and silent:
+- Peek-a-boo: slips off screen, peeks in from the side and from below, then "boo!"
+- Ball: head-butts a ball around, then misses it. Tilting the stick tilts the floor.
+- Cube: its eyes meet and pop into a spinning 3D cube, which hops and changes back
+- Lost eye: one eye falls off and bounces away, the other stares, it hops home.
+  "nobody saw that"
+- The fly: buzzes around, lands on an eye, then gets caught... usually
+- WiFi snack: eats one snack per network it found (up to 3), then "*burp*"
+
+Picked at random, never one it did recently, and mood changes the odds. Clap, poke,
+talk or pick it up and the show stops: your reaction first, then a shy "oops..".
+Shows wait for WiFi hunts and never change its stats. They skip when it is sick,
+hot or low on battery. Settings > Idle Shows: Lively (2-5 min) / Calm (5-10 min) / Off.
+
+**Health fix.** A full, happy pet still got sick after a few hours on a desk (measured
+on a real pet: hunger 100, happiness 100, health 24-29). Health dropped 12 points an
+hour, and only strong WiFi or sleeping brought it back. Now:
+- Fed and happy (both 50+): slowly heals, +1 every 5 min
+- In between: -1 every 5 min. Starving or miserable (under 20): -2 every 5 min
+- Laid down asleep: still the fast way, +1 a minute
+- Once sick it stays sick until health reaches 32, so it no longer flickers at the line
+- The sick face says what helps: "lay me down to heal", "I need WiFi...", "so dizzy..."
+- Spinning it costs stats at most once in 5 minutes (a swinging keychain turns a lot)
+- A WiFi scan that fails no longer counts as "found nothing"
+
+**USB serial.** `S` replies with the screen (the README GIF was recorded this way),
+`P<1-6>;` plays a show, and a `STAT` line every 5 s logs stats and drawing speed.
 
 ## v3.7 (2026-11-02) - more alive: calling, poking, falling, eating power, a game
 Tested with Mohanad on the real stick while logging it over USB.

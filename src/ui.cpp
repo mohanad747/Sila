@@ -10,6 +10,7 @@
 #include "ui.h"
 #include "ui_anim.h"
 #include "theme.h"
+#include "shows.h"
 
 using namespace theme;
 
@@ -215,6 +216,10 @@ static void menuList(const char* const* labels, const char* const* values, int c
   }
 }
 
+#ifdef SILA_DEV
+float devFaceAngle = -1;                  // serial test: hold the face at this angle
+#endif
+
 // ===========================================================================
 // FACE: floating-bottle physics
 // The face is drawn on its own canvas and rotated onto the screen. Its angle
@@ -234,6 +239,15 @@ static void stepFacePhysics() {
 
   bool faceMode = (currentScreen == SCREEN_HOME || currentScreen == SCREEN_BOOT) && autoRotate;
   float target = faceMode ? (gravValid ? gravAngle : lastTargetAngle) : 0.0f;
+  // During a show the stage stays put, so tilting the stick really tilts the floor
+  faceTiltDelta = 0;
+  if (faceMode && showsPose().on) {
+    target = lastTargetAngle;
+    if (gravValid) faceTiltDelta = fmodf(gravAngle - target + 540.0f, 360.0f) - 180.0f;
+  }
+#ifdef SILA_DEV
+  if (devFaceAngle >= 0) { target = devFaceAngle; faceTiltDelta = 0; }
+#endif
   lastTargetAngle = target;
 
   // Angle: underdamped spring (zeta ~0.55) -> floaty, small overshoot
@@ -544,8 +558,8 @@ static const char* happyHint() {
 }
 static const char* healthHint() {
   if (pet.health >= 70) return "Healthy and strong.";
-  if (pet.health >= 40) return "Lay it down to sleep & heal.";
-  return "Weak! Feed it, then let it sleep.";
+  if (pet.health >= 40) return "Fed + happy = it heals slowly.";
+  return "Weak! Lay it down to heal fast.";
 }
 
 static void screenVitals() {
@@ -694,17 +708,17 @@ static void screenEnvironment() {
 // ===========================================================================
 static void screenSysInfo() {
   fb.fillSprite(BG);
-  header("SYSTEM", SEC_SYSTEM, "v3.7", SEC_SYSTEM);
+  header("SYSTEM", SEC_SYSTEM, "v3.8", SEC_SYSTEM);
   panel(SEC_SYSTEM);
 
   char v[32];
   unsigned long s = millis() / 1000;
   int y = PANEL_Y + 4, st = 12;
   if (lastResetCount) {
-    snprintf(v, sizeof(v), "Sila v3.7  %s x%lu", lastResetWhy, (unsigned long)lastResetCount);
+    snprintf(v, sizeof(v), "Sila v3.8  %s x%lu", lastResetWhy, (unsigned long)lastResetCount);
     kv(9, y, "Firm", v, SEC_SYSTEM, AMBER);
   } else {
-    kv(9, y, "Firm", "Sila v3.7", SEC_SYSTEM);
+    kv(9, y, "Firm", "Sila v3.8", SEC_SYSTEM);
   }
   snprintf(v, sizeof(v), "%luh %02lum %02lus", s / 3600, (s / 60) % 60, s % 60);
   kv(9, y + st, "Up", v, SEC_SYSTEM);
@@ -758,11 +772,12 @@ static void screenSettings(int idx) {
   char save[8];
   snprintf(save, sizeof(save), "%us", autoSaveMs / 1000);
   static const char* const labels[SETTINGS_COUNT] = {
-    "Idle Screen", "Lie-down Sleep", "Ears (mic)", "People Radar", "Scan Rate", "Auto Save",
+    "Idle Screen", "Idle Shows", "Lie-down Sleep", "Ears (mic)", "People Radar", "Scan Rate", "Auto Save",
     "Reset Stats", "New Egg", "Back"
   };
   const char* values[SETTINGS_COUNT] = {
     idleMode == IDLE_DIM ? "Dim 1min" : idleMode == IDLE_BLACK ? "Off 1min" : "Always on",
+    idleShows == SHOWS_OFF ? "Off" : idleShows == SHOWS_CALM ? "Calm" : "Lively",
     lieDownSleep ? "On" : "Off", earsEnabled ? "On" : "Off", radarEnabled ? "On" : "Off",
     scanSaver ? "Saver" : "Normal", save, nullptr, nullptr, nullptr
   };

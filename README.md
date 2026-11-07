@@ -55,6 +55,7 @@ This replaces Bruce on the stick. To go back, flash Bruce again from its web fla
 | **Rock it** side to side | Eyelids get heavy, it falls asleep in your arms. Bumps make it stir, a hard jolt or loud bang wakes it in shock | | |
 | **Walk** with it | Counts steps, "walkies!", +happiness/+health every 100 steps, daily goal 3000 | | |
 | **Talk / clap / music** | Listens (teal sound waves), looks at you on a clap, dances to a beat, startles at a bang | | |
+| **Leave it on your desk** | Every few minutes it performs a short silent show: peek-a-boo, plays with a ball, turns into a cube, loses an eye, chases a fly, eats a WiFi snack. Anything you do interrupts it ("oops..") | | |
 | **Double clap** | "you called?" - looks at you, wakes it up happily if asleep | | |
 | **Poke** its side | 1-3 pokes: giggles. 4-5: "hey!". 6+ in 8 s: grumpy "stop poking!" | | |
 | **Drop / toss** it | Screams while falling. Soft catch: "wheee!". Hard landing: "ow!" + dizzy | | |
@@ -122,6 +123,7 @@ include/theme.h     colour palette
 src/face.cpp        robot-eyes face (drawn with shapes, reacts to mood/WiFi)
 src/senses.cpp      ears (mic), steps, rocking, people radar (BLE)
 src/game.cpp        Catch, the tilt mini-game
+src/shows.cpp       idle shows (ball, cube, lost eye, fly, snack, peek-a-boo)
 src/backup.cpp      pet backup that survives re-flashing
 include/ui.h        shared types and state
 include/ui_anim.h   animation timings (from upstream)

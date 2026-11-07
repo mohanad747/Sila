@@ -29,6 +29,7 @@
 
 #include "ui.h"
 #include "ui_anim.h"
+#include "shows.h"
 
 // ---------------- Tunables ----------------
 static const uint32_t SCREEN_SLEEP_MS   = 60000;  // dim (or turn off) after this much idle time
@@ -46,6 +47,9 @@ static const int      DIZZY_TURNS       = 4;      // this many orientation chang
 static const uint32_t DIZZY_WINDOW_MS   = 10000;  // ...within this time = dizzy
 static const uint32_t DIZZY_MS          = 6000;   // spiral eyes this long
 static const uint32_t QUEASY_MS         = 45000;  // then feels sick this long
+static const uint32_t DIZZY_COST_MS     = 300000; // spinning costs stats at most this often (a swinging keychain turns a lot)
+static const int      SICK_BELOW        = 25;     // health under this = sick...
+static const int      WELL_FROM         = 32;     // ...until it is back up to this (no flickering at the line)
 static const uint32_t PAT_COOLDOWN_MS   = 8000;
 static const float    SHOCK_JOLT_G      = 0.9f;   // a bump this hard while asleep = wakes in shock
 static const float    SHOCK_SOUND_DB    = 38;     // only a bang this loud wakes it in shock (else it just stirs)
@@ -414,8 +418,12 @@ static void noteTurn(unsigned long now) {
   if (currentScreen != SCREEN_HOME || restPhase != REST_NONE) return;
 
   if (now >= dizzyUntil) {                       // new dizzy spell: costs a little
-    pet.happiness = constrain(pet.happiness - 4, 0, 100);
-    pet.health    = constrain(pet.health - 3,    0, 100);
+    static unsigned long lastCost = 0;
+    if (lastCost == 0 || now - lastCost > DIZZY_COST_MS) {
+      lastCost = now;
+      pet.happiness = constrain(pet.happiness - 4, 0, 100);
+      pet.health    = constrain(pet.health - 3,    0, 100);
+    }
     sndStart(2);                               // always audible, not an "ambient" sound
   }
   dizzyUntil  = now + DIZZY_MS;
@@ -480,6 +488,8 @@ void startWifiScan() {
   wifiScanInProgress = true;
 }
 
+static bool scanFailed = false;
+
 bool checkWifiScanDone() {
   if (!wifiScanInProgress) return false;
   int n = WiFi.scanComplete();
@@ -488,12 +498,14 @@ bool checkWifiScanDone() {
   wifiScanInProgress = false;
   lastWifiScanTime   = millis();
 
-  if (n < 0) {
-    wifiStats = WifiStats();
+  if (n < 0) {                 // the scan itself failed: says nothing about the WiFi around, so no food and no sulking
+    scanFailed = true;
+    Serial.printf("WIFI-EV scan failed (%d)\n", n);
     WiFi.scanDelete();
     WiFi.mode(WIFI_OFF);
     return true;
   }
+  scanFailed = false;
 
   WifiStats s;
   s.netCount = n;
@@ -537,6 +549,7 @@ static void writeBackup() {
             (radarEnabled ? 8 : 0) | (scanSaver ? 16 : 0) | (screenFlipped ? 32 : 0);
   b.idleMode = idleMode;
   b.gameBest = gameBest;
+  b.idleShows1 = idleShows + 1;
   backupWrite(b);
   lastBackup = millis();
   backupForce = false;
@@ -556,6 +569,7 @@ static bool restoreFromBackup() {
   radarEnabled = b.flags & 8; scanSaver = b.flags & 16; screenFlipped = b.flags & 32;
   idleMode = b.idleMode > IDLE_ON ? IDLE_ON : b.idleMode;
   gameBest = b.gameBest;
+  if (b.idleShows1 >= 1 && b.idleShows1 <= 3) idleShows = b.idleShows1 - 1;
   return true;
 }
 
@@ -586,6 +600,7 @@ void saveState() {
   prefs.putULong("stBest",  stepsBest);
   prefs.putUShort("stDay",  stepsDayIdx);
   prefs.putUShort("gBest",  gameBest);
+  prefs.putUChar("shows",   idleShows);
 
   // Backup every 5 minutes, and right away when forced or the pet just hatched
   static bool backedUpHatched = false;
@@ -647,6 +662,8 @@ void loadState() {
   stepsBest          = prefs.getULong("stBest", 0);
   stepsDayIdx        = prefs.getUShort("stDay", (uint16_t)pet.ageDays);
   gameBest           = prefs.getUShort("gBest", 0);
+  idleShows          = prefs.getUChar("shows", SHOWS_LIVELY);
+  if (idleShows > SHOWS_OFF) idleShows = SHOWS_LIVELY;
   autoSaveMs         = prefs.getUShort("aSave", 30000);
 
   traitCuriosity = prefs.getUChar("tCur", 70);
@@ -660,7 +677,10 @@ void loadState() {
 void updateMood() {
   bool longNoWifi = noWifiSince != 0 && millis() - noWifiSince > NO_WIFI_SICK_MS;
   bool queasy = millis() < queasyUntil;
-  if (pet.health < 25 || longNoWifi || queasy) { currentMood = MOOD_SICK; return; }
+  static bool weak = false;
+  if (pet.health < SICK_BELOW) weak = true;
+  else if (pet.health >= WELL_FROM) weak = false;
+  if (weak || longNoWifi || queasy) { currentMood = MOOD_SICK; return; }
   if (pet.hunger < 25)                                  { currentMood = MOOD_HUNGRY;  return; }
   if (pet.happiness > 80 && wifiStats.netCount > 8)     { currentMood = MOOD_EXCITED; return; }
   if (pet.happiness > 60 && wifiStats.netCount > 0)     { currentMood = MOOD_HAPPY;   return; }
@@ -807,6 +827,7 @@ void startRest(unsigned long durationMs) {
 // =====================================================================
 void decideNextActivity() {
   if (currentActivity != ACT_NONE || restPhase != REST_NONE) return;
+  if (showsRunning()) return;                           // hunts wait until the show is over
 
   unsigned long now = millis();
   if (now - lastDecisionTime < currentDecisionInterval) return;
@@ -1031,28 +1052,38 @@ static void updateSleepSenses() {
 // =====================================================================
 //  Logic tick (every 100 ms, unchanged rules)
 // =====================================================================
+#ifdef SILA_DEV
+static uint32_t devWarp = 1;              // serial test: stats change this many times faster
+#define DECAY(ms) ((ms) / devWarp)
+#else
+#define DECAY(ms) (ms)
+#endif
+
 void logicTick() {
   unsigned long now = millis();
 
   bool deepBedtime = (petBedtime || rockedSleep) && restPhase == REST_DEEP;
 
-  if (now - hungerTimer >= (deepBedtime ? HUNGER_DECAY_MS * 3 : HUNGER_DECAY_MS)) {   // sleeping burns less
+  if (now - hungerTimer >= DECAY(deepBedtime ? HUNGER_DECAY_MS * 3 : HUNGER_DECAY_MS)) {   // sleeping burns less
     if (powerState == PWR_BATTERY) pet.hunger = max(0, pet.hunger - 1);   // plugged in = eating electricity
     hungerTimer = now;
   }
-  if (now - happinessTimer >= HAPPY_DECAY_MS) {
+  if (now - happinessTimer >= DECAY(HAPPY_DECAY_MS)) {
     bool lonely = wifiStats.netCount == 0 && (now - lastWifiScanTime) > 30000;
     if (!deepBedtime) pet.happiness = max(0, pet.happiness - (lonely ? 2 : 1));
     happinessTimer = now;
   }
-  if (now - healthTimer >= HEALTH_DECAY_MS) {
+  if (now - healthTimer >= DECAY(HEALTH_DECAY_MS)) {
+    // Looked after = slowly heals; neglected = gets sick. It used to lose health
+    // all the time, so even a full, happy pet on a desk got sick in a few hours.
     bool neglected = pet.hunger < 20 || pet.happiness < 20;
-    if (!deepBedtime) pet.health = max(0, pet.health - (neglected ? 2 : 1));
+    bool wellKept  = pet.hunger >= 50 && pet.happiness >= 50;
+    if (!deepBedtime) pet.health = constrain(pet.health + (wellKept ? 1 : neglected ? -2 : -1), 0, 100);
     healthTimer = now;
   }
 
   if (deepBedtime) {                                    // a good sleep heals: +1 health / min
-    if (now - bedHealTimer >= BED_HEAL_MS) { pet.health = min(100, pet.health + 1); bedHealTimer = now; }
+    if (now - bedHealTimer >= DECAY(BED_HEAL_MS)) { pet.health = min(100, pet.health + 1); bedHealTimer = now; }
   } else {
     bedHealTimer = now;
   }
@@ -1076,8 +1107,9 @@ void logicTick() {
 
   if (currentActivity == ACT_HUNT || currentActivity == ACT_DISCOVER) {
     if (checkWifiScanDone()) {
-      if (currentActivity == ACT_HUNT) resolveHunt();
-      else                             resolveDiscover();
+      if (scanFailed)                       { }
+      else if (currentActivity == ACT_HUNT) resolveHunt();
+      else                                  resolveDiscover();
       currentActivity = ACT_NONE;
       if (!hungerEffectActive) ledsOff();
     }
@@ -1561,15 +1593,16 @@ void handleInput() {
       sndClick();
       switch (settingsMenuIndex) {
         case 0: idleMode = (idleMode + 1) % 3; break;      // Dim -> Black -> Always on
-        case 1: lieDownSleep = !lieDownSleep; break;
-        case 2: earsEnabled  = !earsEnabled;  break;
-        case 3: radarEnabled = !radarEnabled; break;
-        case 4: scanSaver = !scanSaver; break;
-        case 5:
+        case 1: idleShows = (idleShows + 1) % 3; break;    // Lively -> Calm -> Off
+        case 2: lieDownSleep = !lieDownSleep; break;
+        case 3: earsEnabled  = !earsEnabled;  break;
+        case 4: radarEnabled = !radarEnabled; break;
+        case 5: scanSaver = !scanSaver; break;
+        case 6:
           autoSaveMs = (autoSaveMs == 15000) ? 30000 : (autoSaveMs == 30000) ? 60000 : 15000;
           break;
-        case 6: resetPet(false); break;
-        case 7:
+        case 7: resetPet(false); break;
+        case 8:
           resetPet(true);
           petStage       = STAGE_BABY;
           hasHatchedOnce = false;
@@ -1577,7 +1610,7 @@ void handleInput() {
           saveState();
           goToScreen(SCREEN_HATCH);
           return;
-        case 8: goToScreen(SCREEN_MENU); return;
+        case 9: goToScreen(SCREEN_MENU); return;
       }
       saveState();
     }
@@ -1666,6 +1699,51 @@ void setup() {
                 (int)M5.getBoard(), M5.Imu.isEnabled() ? "ok" : "missing");
 }
 
+// One line every 5 s: the pet's stats, and how long drawing a frame takes.
+static void logStats(unsigned long now, unsigned long drawMs) {
+  static unsigned long lastLog = 0, sum = 0, worst = 0, frames = 0;
+  sum += drawMs; frames++;
+  if (drawMs > worst) worst = drawMs;
+  if (now - lastLog < 5000) return;
+  Serial.printf("STAT hunger=%d happy=%d health=%d mood=%d nets=%d rssi=%d shows=%d show=%d draw=%lu/%lums fps=%lu heap=%u\n",
+                pet.hunger, pet.happiness, pet.health, (int)currentMood, wifiStats.netCount, wifiStats.avgRSSI,
+                (int)idleShows, showsRunning() ? 1 : 0, sum / max(1UL, frames), worst,
+                frames * 1000 / max(1UL, now - lastLog), (unsigned)ESP.getFreeHeap());
+  lastLog = now; sum = worst = frames = 0;
+}
+
+// Letter + number + ';' commands. Returns true if the byte was used.
+static bool serialCommand(int ch) {
+  static char cmd = 0;
+  static int value = 0;
+  static bool negative = false;
+  if (!cmd) {
+    bool known = ch == 'P';
+#ifdef SILA_DEV
+    known = known || ch == 'H' || ch == 'J' || ch == 'K' || ch == 'W' || ch == 'G' || ch == 'A' || ch == 'U';
+#endif
+    if (!known) return false;
+    cmd = (char)ch; value = 0; negative = false;
+    return true;
+  }
+  if (ch == '-') { negative = true; return true; }
+  if (ch >= '0' && ch <= '9') { value = value * 10 + (ch - '0'); return true; }
+  if (negative) value = -value;
+  char c = cmd;
+  cmd = 0;
+  if (c == 'P') showsStart((ShowId)value);
+#ifdef SILA_DEV
+  if (c == 'H') pet.hunger = value;
+  if (c == 'J') pet.happiness = value;
+  if (c == 'K') pet.health = value;
+  if (c == 'W') devWarp = max(1, value);
+  if (c == 'G') devFaceStage = value;
+  if (c == 'A') devFaceAngle = value;
+  if (c == 'U') { if (value < 0) goToScreen(SCREEN_HOME); else { settingsMenuIndex = value; goToScreen(SCREEN_SETTINGS); } }
+#endif
+  return true;
+}
+
 void loop() {
   M5.update();
   unsigned long now = millis();
@@ -1698,11 +1776,16 @@ void loop() {
   } else if (now - lastFrame >= period) {
     lastFrame = now;
     applyRotation();
+    unsigned long drawStart = millis();
     uiDrawScreen(currentScreen, mainMenuIndex, controlsIndex, settingsMenuIndex);
-    // Send 'S' over USB serial to get a screenshot - used for README GIFs.
+    logStats(now, millis() - drawStart);
+    // USB serial commands. 'S' = screenshot, used for README GIFs and for checking shows.
     // Reply: "SHOT w h bytes\n" + run-length data (count byte, 2 pixel bytes), mostly black so small.
+    // 'P<n>;' = play idle show n.
     while (Serial.available()) {
-      if (Serial.read() != 'S') continue;
+      int ch = Serial.read();
+      if (serialCommand(ch)) continue;
+      if (ch != 'S') continue;
       const uint16_t* px = (const uint16_t*)fb.getBuffer();
       int total = fb.width() * fb.height(), n = 0, i = 0;
       static uint8_t* shot = (uint8_t*)ps_malloc(3 * SCR_W * SCR_H);   // worst case, every pixel different

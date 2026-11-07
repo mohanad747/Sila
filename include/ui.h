@@ -65,7 +65,7 @@ struct WifiStats {
 // Menu sizes (main logic and UI must agree)
 static const int MAIN_MENU_COUNT = 9;
 static const int CONTROLS_COUNT  = 6;
-static const int SETTINGS_COUNT  = 9;
+static const int SETTINGS_COUNT  = 10;
 
 // ============ Framebuffer (defined in main.cpp) ============
 extern M5Canvas fb;
@@ -151,6 +151,11 @@ void saveState();
 void gameEnter();
 void gameButtonA();
 void gameDraw();
+
+#ifdef SILA_DEV
+extern int   devFaceStage;                // serial test only
+extern float devFaceAngle;
+#endif
 
 // ============ UI API ============
 // Robot-eyes face (face.cpp)

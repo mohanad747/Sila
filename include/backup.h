@@ -16,7 +16,8 @@ struct __attribute__((packed)) SaveBlob {
   uint8_t  flags;               // bit0 autoRotate, 1 lieDown, 2 ears, 3 radar, 4 scanSaver, 5 flipped
   uint8_t  idleMode;
   uint16_t gameBest;            // v3.7: best Catch score (0 in older backups)
-  uint8_t  reserved[8];
+  uint8_t  idleShows1;          // v3.8: idle shows setting + 1 (0 = older backup)
+  uint8_t  reserved[7];
   uint32_t crc;
 };
 static_assert(sizeof(SaveBlob) == 64, "SaveBlob must be 64 bytes");

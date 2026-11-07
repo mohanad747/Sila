@@ -19,8 +19,13 @@
 #include "ui.h"
 #include "ui_anim.h"
 #include "theme.h"
+#include "shows.h"
 
 using namespace theme;
+
+#ifdef SILA_DEV
+int devFaceStage = -1;                    // serial test: look at another stage's face
+#endif
 
 // Both canvases are made once at boot and never freed: re-creating one on every
 // landscape/portrait switch failed once WiFi/BLE had fragmented the RAM, and
@@ -32,9 +37,6 @@ static M5Canvas*& cv = faceCanvas;
 float faceMotionX = 0, faceMotionY = 0;   // set by the UI: movement in face coordinates (g)
 
 namespace {
-
-enum MouthStyle { MOUTH_DASH, MOUTH_SMILE, MOUTH_BIG_SMILE, MOUTH_FROWN, MOUTH_O, MOUTH_YAWN,
-                  MOUTH_CHEW, MOUTH_WAVY, MOUTH_NONE };
 
 // ---------------- Stage looks ----------------
 struct StageLook {
@@ -78,7 +80,11 @@ void layout() {
   MOUTH_Y = CY + (int)(34 * S);
   BADGE_Y = portrait ? CY + 62 : 109;
 
+#ifdef SILA_DEV
+  L = &LOOKS[devFaceStage >= 0 ? devFaceStage : constrain((int)petStage, 0, 3)];
+#else
   L = &LOOKS[constrain((int)petStage, 0, 3)];
+#endif
   BASE_W = L->w; BASE_H = L->h; GAP = L->gap;
 }
 
@@ -202,6 +208,14 @@ void pickQuirk(unsigned long now) {
 void pickExpression(unsigned long now) {
   setNeutral();
   if (introScript(now)) return;
+
+  // ---- An idle show owns the face ----
+  const ShowPose& sp = showsPose();
+  if (sp.on) {
+    tgt.happy = sp.happy; tgt.browRaise = sp.browRaise; tgt.browSlant = sp.browSlant; tgt.flat = sp.flat;
+    mouth = sp.mouth; allowBlink = sp.blink; blush = sp.blush;
+    return;
+  }
 
   if (hungerEffectActive && !lastHungerEffect) eatUntil = now + 1600;
   lastHungerEffect = hungerEffectActive;
@@ -460,6 +474,7 @@ void pickExpression(unsigned long now) {
 // ---------------------------------------------------------------------------
 void updateGaze(unsigned long now) {
   if (introRunning(now)) return;                 // the intro script sets the gaze
+  if (showsPose().on) { gazeTx = showsPose().gx; gazeTy = showsPose().gy; return; }
   if (dizzy) { gazeTx = 6 * sinf(now / 90.0f); gazeTy = 4 * cosf(now / 110.0f); return; }
   if (sweepGaze) { gazeTx = 10.0f * sinf(now / 300.0f); gazeTy = 0; return; }
   if (quirk == Q_LOOK || listening || startled || millis() < noticeUntil || millis() < calledUntil) { gazeTx = 0; gazeTy = 0; return; }
@@ -787,7 +802,9 @@ void drawOverlays(unsigned long now) {
     }
     return;
   }
-  if (now < evolveUntil) {
+  if (showsPose().on) {
+    if (showsPose().badge) drawBadge(showsPose().badge);
+  } else if (now < evolveUntil) {
     static const char* names[4] = { "BABY", "TEEN", "ADULT", "ELDER" };
     snprintf(buf, sizeof(buf), portrait ? "%s!" : "I'm %s now!", names[constrain((int)petStage, 0, 3)]);
     drawBadge(buf);
@@ -842,7 +859,11 @@ void drawOverlays(unsigned long now) {
     bool lowBatt = powerState == PWR_BATTERY && batteryShown >= 0 && batteryShown <= 15;
     if (show && lowBatt)                        drawBadge(batteryShown <= 6 ? (portrait ? "charge me!" : "feed me power!") : (portrait ? "low power" : "low battery..."));
     else if (show && currentMood == MOOD_HUNGRY) drawBadge("hungry");
-    else if (show && currentMood == MOOD_SICK)  drawBadge(portrait ? "unwell" : "not feeling well");
+    else if (show && currentMood == MOOD_SICK) {      // says what would help
+      if (pet.health >= 32)                  drawBadge(wifiStats.netCount == 0 ? "I need WiFi..." : "so dizzy...");
+      else if ((now / 6000) % 2 == 0)        drawBadge(portrait ? "unwell" : "not feeling well");
+      else                                   drawBadge(portrait ? "lay me down" : "lay me down to heal");
+    }
     else if (show && currentMood == MOOD_BORED && wifiStats.netCount == 0) drawBadge("no WiFi here...");
   }
 }
@@ -906,6 +927,10 @@ void faceRender() {
   float k  = constrain(dt * 0.012f, 0.0f, 1.0f);
   float kg = constrain(dt * 0.009f, 0.0f, 1.0f);
 
+  ShowStage stage = { W, H, CX, CY, MOUTH_Y, S, (GAP / 2 + BASE_W / 2) * S, BASE_W * S, BASE_H * S, L->restMouth, portrait };
+  showsTick(now, stage);
+  const ShowPose& sp = showsPose();
+
   pickExpression(now);
   updateGaze(now);
   // Eyes lag behind when the stick is moved (floating feel)
@@ -931,6 +956,7 @@ void faceRender() {
   float pupilDx = constrain(cur.gx / 10.0f, -1.0f, 1.0f);
 
   float off = (GAP / 2 + BASE_W / 2) * S;
+  if (sp.on) { dx += sp.ox; dy += sp.oy; }
   float lcx = CX - off + dx;
   float rcx = CX + off + dx;
   float lcy = CY + dy + cur.tilt * S;
@@ -940,12 +966,22 @@ void faceRender() {
 
   cv->fillSprite(BG);
   if (radar) drawRadar(now, CX, CY);
-  drawEye(lcx, lcy, (cur.lw - persp) * S, lh, true,  closed, pupilDx);
-  drawEye(rcx, rcy, (cur.rw + persp) * S, rh, false, closed, pupilDx);
-  if (L->glasses) cv->drawWideLine((int)(lcx + BASE_W * S / 2 + 4 * S), (int)lcy - 2, (int)(rcx - BASE_W * S / 2 - 4 * S), (int)rcy - 2, 1.2f, GREY);
-  drawBrow(lcx, lcy - cur.lh * S / 2, true);
-  drawBrow(rcx, rcy - cur.rh * S / 2, false);
-  drawMouth(now, CX + dx * 0.4f, MOUTH_Y + dy * 0.4f, cur.tilt * S);
+  showsDraw(cv, false);
+  if (!(sp.on && sp.hideFace)) {
+    bool eyesApart = sp.on && (sp.lx != 0 || sp.ly != 0 || sp.rx != 0 || sp.ry != 0);
+    float lw = (cur.lw - persp) * S, rw = (cur.rw + persp) * S, lhS = lh, rhS = rh;
+    if (sp.on) { lw *= sp.lsx; rw *= sp.rsx; lhS *= sp.lsy; rhS *= sp.rsy; closed = lhS < 8 && rhS < 8; }
+    drawEye(lcx + sp.lx, lcy + sp.ly, lw, lhS, true,  closed, pupilDx);
+    drawEye(rcx + sp.rx, rcy + sp.ry, rw, rhS, false, closed, pupilDx);
+    if (L->glasses && !eyesApart) cv->drawWideLine((int)(lcx + BASE_W * S / 2 + 4 * S), (int)lcy - 2, (int)(rcx - BASE_W * S / 2 - 4 * S), (int)rcy - 2, 1.2f, GREY);
+    drawBrow(lcx, lcy - cur.lh * S / 2, true);
+    drawBrow(rcx, rcy - cur.rh * S / 2, false);
+    // In a show the mouth stays with the head; normally it only drifts a little
+    float mdx = sp.on ? sp.ox + (dx - sp.ox) * 0.4f : dx * 0.4f;
+    float mdy = sp.on ? sp.oy + (dy - sp.oy) * 0.4f : dy * 0.4f;
+    drawMouth(now, CX + mdx, MOUTH_Y + mdy, cur.tilt * S);
+  }
+  showsDraw(cv, true);
   drawOverlays(now);
 }
 

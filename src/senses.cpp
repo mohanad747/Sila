@@ -12,6 +12,7 @@
 #include <NimBLEDevice.h>
 #include <math.h>
 #include "ui.h"
+#include "shows.h"
 
 // ---------------- Settings / shared state ----------------
 bool earsEnabled  = true;
@@ -451,7 +452,7 @@ static void radarUpdate(unsigned long now) {
   }
   if (radarBusy) return;
 
-  bool allowed = radarEnabled && restPhase == REST_NONE && !runningHot &&
+  bool allowed = radarEnabled && restPhase == REST_NONE && !runningHot && !showsRunning() &&
                  (batteryShown < 0 || batteryShown > 15 || powerState != PWR_BATTERY) &&
                  !wifiScanInProgress && currentScreen != SCREEN_BOOT && currentScreen != SCREEN_HATCH;
   if (!allowed || now < radarHoldUntil) return;
